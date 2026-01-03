@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <title>Blutdrucktagebuch 2026</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js"></script>
+  <style>
+    :root{--primary:#2563eb;--success:#16a34a;--warning:#f59e0b;--danger:#dc2626;--bg:#f1f5f9}
+    body{font-family:system-ui,sans-serif;margin:0;padding:12px;background:var(--bg)}
+    h1,h2,h3{margin:6px 0}
+    .container{max-width:1100px;margin:auto}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}
+    .card{background:#fff;padding:14px;border-radius:16px;box-shadow:0 10px 20px rgba(0,0,0,.08)}
+    label{display:block;margin-top:8px;font-weight:600}
+    input,select,button{width:100%;padding:10px;border-radius:10px;border:1px solid #cbd5e1;margin-top:4px;font-size:16px}
+    button{background:var(--primary);color:#fff;border:none;font-weight:600}
+    button.secondary{background:#64748b}
+    table{width:100%;border-collapse:collapse;font-size:14px}
+    th,td{padding:6px;text-align:center}
+    th{background:#e2e8f0}
+    .badge{padding:4px 8px;border-radius:999px;color:#fff;font-size:12px}
+    .normal{background:var(--success)}.erhoeht{background:var(--warning)}.hoch{background:var(--danger)}
+    .alert{padding:10px;border-radius:10px;color:#fff;margin-top:8px}
+    .alert.hoch{background:var(--danger)}
+    @media(max-width:600px){table{font-size:12px} h1{font-size:20px}}
+  </style>
+</head>
+<body>
+<div class="container">
+<h1>🩺 Blutdrucktagebuch 2026</h1>
+
+<div id="loginBox" class="card">
+  <h2>🔐 Login</h2>
+  <input type="password" id="pw" placeholder="Passwort">
+  <button onclick="doLogin()">Login</button>
+</div>
+
+<div id="app" style="display:none">
+
+<div class="grid">
+<div class="card">
+<h2>Neue Messung</h2>
+<label>Datum<input type="date" id="datum" value="2026-01-01"></label>
+<label>Uhrzeit<input type="time" id="uhrzeit"></label>
+<label>Systolisch<input type="number" id="sys"></label>
+<label>Diastolisch<input type="number" id="dia"></label>
+<label>Puls<input type="number" id="puls"></label>
+<button onclick="addMessung()">Speichern</button>
+<div id="warnung"></div>
+</div>
+
+<div class="card">
+<h2>⚖️ Gewicht (Sonntag)</h2>
+<p id="gewichtHinweis"></p>
+<label>Gewicht in kg
+  <input type="number" id="gewicht" step="0.1" placeholder="z.B. 72.5">
+</label>
+<button onclick="addGewicht()">Gewicht speichern</button>
+</div>
+
+<div class="card">
+<h2>📊 Statistik</h2>
+<select id="statTyp" onchange="render()">
+<option value="monat">Monat</option>
+<option value="woche">Woche</option>
+<option value="jahr">Jahr</option>
+</select>
+<canvas id="chart"></canvas>
+<p id="avg"></p>
+</div>
+</div>
+
+<div class="card">
+<h2>📅 Kalender</h2>
+<div id="calendar"></div>
+</div>
+
+<div class="card">
+<h2>Messungen</h2>
+<table>
+<thead><tr><th>Datum</th><th>Zeit</th><th>Sys</th><th>Dia</th><th>Puls</th><th>Status</th></tr></thead>
+<tbody id="tableBody"></tbody>
+</table>
+</div>
+
+<div class="grid">
+<div class="card">
+<h3>🗂️ Backup</h3>
+<button onclick="exportData()">Export (JSON)</button>
+<input type="file" onchange="importData(this.files[0])">
+</div>
+<div class="card">
+<h3>🖨️ Drucken</h3>
+<button class="secondary" onclick="window.print()">Drucken / PDF</button>
+</div>
+</div>
+
+</div>
+</div>
+
+<script>
+const PASSWORT = '2026'
+let daten = JSON.parse(localStorage.getItem('blutdruck2026') || '[]')
+let gewichte = JSON.parse(localStorage.getItem('gewicht2026') || '[]')
+let chart
+
+function doLogin(){
+  if(document.getElementById('pw').value === PASSWORT){
+    loginBox.style.display='none'
+    app.style.display='block'
+    initCalendar(); render(); checkSonntag()
+  } else alert('Falsches Passwort')
+}
+
+function status(d){
+  if(d.sys < 130 && d.dia < 85) return 'normal'
+  if(d.sys < 140 && d.dia < 90) return 'erhoeht'
+  return 'hoch'
+}
+
+function addMessung(){
+  const m={datum:datum.value,uhrzeit:uhrzeit.value,sys:+sys.value,dia:+dia.value,puls:+puls.value}
+  daten.push(m); localStorage.setItem('blutdruck2026',JSON.stringify(daten))
+  warnung.innerHTML = status(m)==='hoch' ? '<div class="alert hoch">⚠️ Hoher Blutdruck!</div>' : ''
+  render()
+}
+
+function render(){
+  tableBody.innerHTML=''
+  daten.forEach(d=>tableBody.innerHTML+=`<tr><td>${d.datum}</td><td>${d.uhrzeit}</td><td>${d.sys}</td><td>${d.dia}</td><td>${d.puls}</td><td><span class="badge ${status(d)}">${status(d)}</span></td></tr>`)
+  drawChart()
+}
+
+function drawChart(){
+  const typ=statTyp.value
+  let list=daten
+  if(typ==='woche') list=daten.slice(-7)
+  if(typ==='jahr') list=daten.filter(d=>d.datum.startsWith('2026'))
+
+  const labels=list.map(d=>d.datum)
+  const sys=list.map(d=>d.sys)
+  const dia=list.map(d=>d.dia)
+  const gewichtMap=Object.fromEntries(gewichte.map(g=>[g.datum,g.kg]))
+  const gewichtData=labels.map(l=>gewichtMap[l]??null)
+
+  if(chart) chart.destroy()
+  chart=new Chart(chartEl={getContext:()=>document.getElementById('chart').getContext('2d')}.getContext(),{
+    type:'line',
+    data:{labels,datasets:[
+      {label:'Systolisch',data:sys},
+      {label:'Diastolisch',data:dia},
+      {label:'Gewicht (kg)',data:gewichtData,yAxisID:'y1'}
+    ]},
+    options:{scales:{y1:{position:'right'}}}
+  })
+
+  if(list.length){
+    avg.textContent=`Ø ${ (sys.reduce((a,b)=>a+b,0)/sys.length).toFixed(1) } / ${ (dia.reduce((a,b)=>a+b,0)/dia.length).toFixed(1) }`
+  }
+}
+
+function addGewicht(){
+  const d=new Date(datum.value)
+  if(d.getDay()!==0) return alert('Gewicht nur sonntags')
+  if(!gewicht.value) return
+  gewichte.push({datum:datum.value,kg:+gewicht.value})
+  localStorage.setItem('gewicht2026',JSON.stringify(gewichte))
+  gewicht.value=''; drawChart()
+}
+
+function checkSonntag(){
+  const d=new Date()
+  gewichtHinweis.textContent = d.getDay()===0 ? 'Heute Sonntag – Gewicht messen ab 10:00' : 'Gewicht jeden Sonntag 10:00'
+}
+
+setInterval(()=>{
+  const n=new Date()
+  if(n.getDay()!==0||n.getHours()<10) return
+  const today=n.toISOString().slice(0,10)
+  if(gewichte.some(g=>g.datum===today)) return
+  if(!localStorage.getItem('gewichtReminder_'+today)){
+    alert('🔔 Erinnerung: Gewicht messen')
+    localStorage.setItem('gewichtReminder_'+today,'1')
+  }
+},60000)
+
+function initCalendar(){
+  new FullCalendar.Calendar(calendar,{initialView:'dayGridMonth',initialDate:'2026-01-01',events:daten.map(d=>({title:`${d.sys}/${d.dia}`,date:d.datum}))}).render()
+}
+
+function exportData(){
+  const a=document.createElement('a')
+  a.href=URL.createObjectURL(new Blob([JSON.stringify(daten)],{type:'application/json'}))
+  a.download='blutdruck_backup.json'; a.click()
+}
+
+function importData(file){
+  const r=new FileReader()
+  r.onload=e=>{daten=JSON.parse(e.target.result);localStorage.setItem('blutdruck2026',JSON.stringify(daten));render();initCalendar()}
+  r.readAsText(file)
+}
+</script>
+</body>
+</html>
